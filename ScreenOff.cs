@@ -840,7 +840,8 @@ class ScreenOffForm : Form
         {
             string localVideosDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videos");
             string userVideosDir = Path.Combine(ConfigDir, "videos");
-            string selectedVideo = null;
+            
+            var videoFiles = new System.Collections.Generic.List<string>();
 
             foreach (var dir in new[] { localVideosDir, userVideosDir })
             {
@@ -852,17 +853,20 @@ class ScreenOffForm : Form
                         string ext = Path.GetExtension(file).ToLower();
                         if (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || ext == ".wmv")
                         {
-                            selectedVideo = file;
-                            break;
+                            if (!videoFiles.Contains(file))
+                            {
+                                videoFiles.Add(file);
+                            }
                         }
                     }
                 }
-                if (selectedVideo != null) break;
             }
 
-            if (selectedVideo != null)
+            if (videoFiles.Count > 0)
             {
-                Log("Playing video screensaver: " + Path.GetFileName(selectedVideo));
+                var rand = new Random();
+                string selectedVideo = videoFiles[rand.Next(videoFiles.Count)];
+                Log("Playing video screensaver (random): " + Path.GetFileName(selectedVideo));
                 var thread = new System.Threading.Thread(() =>
                 {
                     try
@@ -1004,7 +1008,7 @@ class ScreenOffForm : Form
 class VideoWindow : System.Windows.Window
 {
     private System.Windows.Controls.MediaElement _mediaElement;
-    private System.Windows.Point _initialMousePos;
+    private System.Drawing.Point _initialMousePos;
     private bool _firstMouseMove = true;
 
     public VideoWindow(string videoPath)
@@ -1019,7 +1023,7 @@ class VideoWindow : System.Windows.Window
         _mediaElement = new System.Windows.Controls.MediaElement
         {
             Source = new Uri(videoPath),
-            LoadedBehavior = System.Windows.Controls.MediaState.Play,
+            LoadedBehavior = System.Windows.Controls.MediaState.Manual,
             UnloadedBehavior = System.Windows.Controls.MediaState.Close,
             Stretch = System.Windows.Media.Stretch.UniformToFill
         };
@@ -1032,18 +1036,21 @@ class VideoWindow : System.Windows.Window
 
         Content = _mediaElement;
 
+        // Start playback immediately when loaded
+        Loaded += (s, e) => _mediaElement.Play();
+
         KeyDown += (s, e) => Close();
         MouseDown += (s, e) => Close();
         MouseMove += (s, e) =>
         {
-            System.Windows.Point currentPos = e.GetPosition(this);
+            System.Drawing.Point currentPos = System.Windows.Forms.Cursor.Position;
             if (_firstMouseMove)
             {
                 _initialMousePos = currentPos;
                 _firstMouseMove = false;
             }
-            else if (Math.Abs(currentPos.X - _initialMousePos.X) > 10 ||
-                     Math.Abs(currentPos.Y - _initialMousePos.Y) > 10)
+            else if (Math.Abs(currentPos.X - _initialMousePos.X) > 15 ||
+                     Math.Abs(currentPos.Y - _initialMousePos.Y) > 15)
             {
                 Close();
             }
