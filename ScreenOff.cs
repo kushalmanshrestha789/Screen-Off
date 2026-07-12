@@ -10,9 +10,20 @@ using Microsoft.Win32;
 
 static class Program
 {
+    private static System.Threading.Mutex _appMutex;
+
     [STAThread]
     static void Main(string[] args)
     {
+        bool createdNew;
+        _appMutex = new System.Threading.Mutex(true, "Global\\ScreenOffAndScreensaverUtilityMutex", out createdNew);
+
+        if (!createdNew)
+        {
+            MessageBox.Show("Screen Off & Screensaver Utility is already running in the system tray.", "Already Running", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
@@ -30,7 +41,14 @@ static class Program
             }
         }
 
-        Application.Run(new ScreenOffForm(startMinimized));
+        try
+        {
+            Application.Run(new ScreenOffForm(startMinimized));
+        }
+        finally
+        {
+            _appMutex.ReleaseMutex();
+        }
     }
 }
 
@@ -1010,9 +1028,11 @@ class VideoWindow : System.Windows.Window
     private System.Windows.Controls.MediaElement _mediaElement;
     private System.Drawing.Point _initialMousePos;
     private bool _firstMouseMove = true;
+    private string _currentVideo;
 
     public VideoWindow(string videoPath)
     {
+        _currentVideo = videoPath;
         Title = "Screensaver";
         WindowStyle = System.Windows.WindowStyle.None;
         WindowState = System.Windows.WindowState.Maximized;
@@ -1039,7 +1059,21 @@ class VideoWindow : System.Windows.Window
         // Start playback immediately when loaded
         Loaded += (s, e) => _mediaElement.Play();
 
-        KeyDown += (s, e) => Close();
+        KeyDown += (s, e) =>
+        {
+            // If user presses Space, Right arrow, N, or Enter, shuffle to another screensaver
+            if (e.Key == System.Windows.Input.Key.Space || 
+                e.Key == System.Windows.Input.Key.Right || 
+                e.Key == System.Windows.Input.Key.N ||
+                e.Key == System.Windows.Input.Key.Enter)
+            {
+                ChangeVideo();
+            }
+            else
+            {
+                Close();
+            }
+        };
         MouseDown += (s, e) => Close();
         MouseMove += (s, e) =>
         {
@@ -1055,5 +1089,42 @@ class VideoWindow : System.Windows.Window
                 Close();
             }
         };
+    }
+
+    private void ChangeVideo()
+    {
+        try
+        {
+            string currentDir = Path.GetDirectoryName(_currentVideo);
+            if (Directory.Exists(currentDir))
+            {
+                var files = Directory.GetFiles(currentDir, "*.*");
+                var videoFiles = new System.Collections.Generic.List<string>();
+                foreach (var file in files)
+                {
+                    string ext = Path.GetExtension(file).ToLower();
+                    if (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || ext == ".wmv")
+                    {
+                        videoFiles.Add(file);
+                    }
+                }
+
+                if (videoFiles.Count > 1)
+                {
+                    videoFiles.Remove(_currentVideo);
+                    var rand = new Random();
+                    string nextVideo = videoFiles[rand.Next(videoFiles.Count)];
+                    _currentVideo = nextVideo;
+                    
+                    _mediaElement.Source = new Uri(nextVideo);
+                    _mediaElement.Position = TimeSpan.Zero;
+                    _mediaElement.Play();
+                }
+            }
+        }
+        catch
+        {
+            // Ignore and stay on current video
+        }
     }
 }
