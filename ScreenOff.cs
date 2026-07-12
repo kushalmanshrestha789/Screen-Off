@@ -55,7 +55,7 @@ static class Program
 class ScreenOffForm : Form
 {
     // ================================================================
-    // WIN32 — HOTKEYS + MONITOR/SCREENSAVER CONTROL
+    // WIN32 — HOTKEYS + MONITOR/SCREENSAVER + IDLE DETECTION
     // ================================================================
     [DllImport("user32.dll")]
     private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -69,6 +69,17 @@ class ScreenOffForm : Form
     public static extern bool ReleaseCapture();
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+
+    // For idle detection
+    [StructLayout(LayoutKind.Sequential)]
+    struct LASTINPUTINFO
+    {
+        public uint cbSize;
+        public uint dwTime;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
     private const int WM_SYSCOMMAND = 0x0112;
     private const int SC_MONITORPOWER = 0xF170;
@@ -102,8 +113,13 @@ class ScreenOffForm : Form
     private string _ssModifier = "Alt";
     private string _ssKey = "S";
 
+    // Idle config
+    private bool _runIdleCheck = false;
+    private int _idleTimeoutMin = 15;
+
     private bool _runAtStartup = false;
     private readonly bool _startMinimized;
+    private bool _isScreensaverActive = false;
 
     // UI elements
     private NotifyIcon _tray;
@@ -125,6 +141,8 @@ class ScreenOffForm : Form
     // Config panel (Screensaver)
     private ComboBox _ssModCombo;
     private ComboBox _ssKeyCombo;
+    private CheckBox _idleCheck;
+    private ComboBox _idleCombo;
 
     private CheckBox _startupCheck;
     private Button _actionBtn;
@@ -134,6 +152,7 @@ class ScreenOffForm : Form
 
     private Timer _countdownTimer;
     private int _countdownRemaining = 0;
+    private Timer _idleTimer;
 
     public ScreenOffForm(bool startMinimized)
     {
@@ -166,6 +185,11 @@ class ScreenOffForm : Form
         _countdownTimer = new Timer();
         _countdownTimer.Interval = 1000;
         _countdownTimer.Tick += CountdownTimer_Tick;
+
+        _idleTimer = new Timer();
+        _idleTimer.Interval = 1000;
+        _idleTimer.Tick += IdleTimer_Tick;
+        _idleTimer.Start();
 
         Log("Screen Off Utility started successfully.");
     }
@@ -340,7 +364,7 @@ class ScreenOffForm : Form
         configCard.Controls.Add(lbl3);
         configCard.Controls.Add(_delayCombo);
 
-        // 5. Config panel: Screensaver (left column, bottom)
+        // 5. Config panel: Screensaver Settings (left column, bottom)
         var ssConfigCard = new Panel
         {
             Size = new Size(256, 156),
@@ -349,7 +373,7 @@ class ScreenOffForm : Form
         };
         mainPanel.Controls.Add(ssConfigCard);
 
-        var ssTitle = new Label { Text = "SCREENSAVER HOTKEY", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = Color.FromArgb(139, 92, 246), Location = new Point(12, 8), AutoSize = true };
+        var ssTitle = new Label { Text = "SCREENSAVER SETTINGS", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = Color.FromArgb(139, 92, 246), Location = new Point(12, 8), AutoSize = true };
         ssConfigCard.Controls.Add(ssTitle);
 
         var lbl4 = new Label { Text = "Modifier", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(12, 28), AutoSize = true };
@@ -381,20 +405,46 @@ class ScreenOffForm : Form
         for (int f = 1; f <= 12; f++) _ssKeyCombo.Items.Add("F" + f);
         _ssKeyCombo.SelectedIndexChanged += ConfigChanged;
 
+        _idleCheck = new CheckBox
+        {
+            Text = "Auto-play when system is idle",
+            Font = new Font("Segoe UI", 8f),
+            ForeColor = Color.FromArgb(209, 213, 219),
+            Location = new Point(12, 78),
+            Size = new Size(232, 20),
+            FlatStyle = FlatStyle.Flat
+        };
+        _idleCheck.CheckedChanged += ConfigChanged;
+        ssConfigCard.Controls.Add(_idleCheck);
+
+        _idleCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = Color.FromArgb(31, 41, 55),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8f),
+            Location = new Point(12, 98),
+            Size = new Size(232, 22)
+        };
+        _idleCombo.Items.AddRange(new object[] { "1 Minute", "2 Minutes", "5 Minutes", "10 Minutes", "15 Minutes", "20 Minutes", "30 Minutes", "1 Hour" });
+        _idleCombo.SelectedIndexChanged += ConfigChanged;
+        ssConfigCard.Controls.Add(_idleCombo);
+
         var ssHint = new Label
         {
-            Text = "Starts the screensaver immediately using standard Windows system calls.",
-            Font = new Font("Segoe UI", 7.5f, FontStyle.Italic),
+            Text = "Space / Right Arrow shifts screensaver during play.",
+            Font = new Font("Segoe UI", 7f, FontStyle.Italic),
             ForeColor = Color.FromArgb(156, 163, 175),
-            Location = new Point(12, 84),
-            Size = new Size(232, 60)
+            Location = new Point(12, 126),
+            Size = new Size(232, 26)
         };
+        ssConfigCard.Controls.Add(ssHint);
 
         ssConfigCard.Controls.Add(lbl4);
         ssConfigCard.Controls.Add(_ssModCombo);
         ssConfigCard.Controls.Add(lbl5);
         ssConfigCard.Controls.Add(_ssKeyCombo);
-        ssConfigCard.Controls.Add(ssHint);
 
         // 6. Actions card (right column, top)
         var actionsCard = new Panel
@@ -574,12 +624,19 @@ class ScreenOffForm : Form
 
                 var ssKeyMatch = Regex.Match(json, "\"ss_hotkey_key\"\\s*:\\s*\"([^\"]*)\"");
                 if (ssKeyMatch.Success) _ssKey = ssKeyMatch.Groups[1].Value;
+
+                // Load Idle config
+                var idleMinMatch = Regex.Match(json, "\"idle_timeout_min\"\\s*:\\s*(\\d+)");
+                if (idleMinMatch.Success) int.TryParse(idleMinMatch.Groups[1].Value, out _idleTimeoutMin);
+
+                var idleEnabledMatch = Regex.Match(json, "\"idle_enabled\"\\s*:\\s*(true|false)");
+                if (idleEnabledMatch.Success) _runIdleCheck = idleEnabledMatch.Groups[1].Value == "true";
                 
                 Log("Configuration file loaded.");
             }
             else
             {
-                Log("Config file not found, using defaults (Alt+D / Alt+S).");
+                Log("Config file not found, using defaults (Alt+D / Alt+S / 15m idle disabled).");
             }
         }
         catch (Exception ex)
@@ -592,6 +649,16 @@ class ScreenOffForm : Form
         SetComboBoxSilently(_keyCombo, _key);
         SetComboBoxSilently(_ssModCombo, _ssModifier);
         SetComboBoxSilently(_ssKeyCombo, _ssKey);
+
+        _idleCheck.CheckedChanged -= ConfigChanged;
+        _idleCheck.Checked = _runIdleCheck;
+        _idleCheck.CheckedChanged += ConfigChanged;
+
+        string idleText = "15 Minutes";
+        if (_idleTimeoutMin == 60) idleText = "1 Hour";
+        else if (_idleTimeoutMin == 1) idleText = "1 Minute";
+        else idleText = _idleTimeoutMin + " Minutes";
+        SetComboBoxSilently(_idleCombo, idleText);
 
         string delayText = "Immediate";
         if (_delaySec == 1) delayText = "1 Second";
@@ -617,8 +684,8 @@ class ScreenOffForm : Form
                 Directory.CreateDirectory(ConfigDir);
             }
             var json = string.Format(
-                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\"\n}}",
-                _modifier, _key, _delaySec, _ssModifier, _ssKey
+                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\",\n  \"idle_timeout_min\": {5},\n  \"idle_enabled\": {6}\n}}",
+                _modifier, _key, _delaySec, _ssModifier, _ssKey, _idleTimeoutMin, _runIdleCheck ? "true" : "false"
             );
             File.WriteAllText(ConfigPath, json);
             Log("Configuration saved.");
@@ -635,6 +702,15 @@ class ScreenOffForm : Form
         _key = _keyCombo.SelectedItem.ToString();
         _ssModifier = _ssModCombo.SelectedItem.ToString();
         _ssKey = _ssKeyCombo.SelectedItem.ToString();
+        _runIdleCheck = _idleCheck.Checked;
+
+        string idleStr = _idleCombo.SelectedItem.ToString();
+        if (idleStr.Contains("1 Hour")) _idleTimeoutMin = 60;
+        else
+        {
+            var m = Regex.Match(idleStr, @"(\d+)");
+            if (m.Success) int.TryParse(m.Groups[1].Value, out _idleTimeoutMin);
+        }
 
         string delayStr = _delayCombo.SelectedItem.ToString();
         if (delayStr == "Immediate") _delaySec = 0;
@@ -854,6 +930,8 @@ class ScreenOffForm : Form
 
     private void TriggerScreensaver()
     {
+        if (_isScreensaverActive) return;
+
         try
         {
             string localVideosDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videos");
@@ -885,6 +963,8 @@ class ScreenOffForm : Form
                 var rand = new Random();
                 string selectedVideo = videoFiles[rand.Next(videoFiles.Count)];
                 Log("Playing video screensaver (random): " + Path.GetFileName(selectedVideo));
+                
+                _isScreensaverActive = true;
                 var thread = new System.Threading.Thread(() =>
                 {
                     try
@@ -895,6 +975,10 @@ class ScreenOffForm : Form
                     catch (Exception threadEx)
                     {
                         Log("Screensaver play error: " + threadEx.Message);
+                    }
+                    finally
+                    {
+                        _isScreensaverActive = false;
                     }
                 });
                 thread.SetApartmentState(System.Threading.ApartmentState.STA);
@@ -910,6 +994,26 @@ class ScreenOffForm : Form
         {
             Log("Failed to start screensaver: " + ex.Message);
             SendMessage(Handle, WM_SYSCOMMAND, (IntPtr)SC_SCREENSAVE, IntPtr.Zero);
+        }
+    }
+
+    private void IdleTimer_Tick(object sender, EventArgs e)
+    {
+        if (!_runIdleCheck || _isScreensaverActive) return;
+
+        var lii = new LASTINPUTINFO();
+        lii.cbSize = (uint)Marshal.SizeOf(lii);
+        if (GetLastInputInfo(ref lii))
+        {
+            uint elapsedTicks = (uint)Environment.TickCount - lii.dwTime;
+            uint idleSeconds = elapsedTicks / 1000;
+            uint targetSeconds = (uint)_idleTimeoutMin * 60;
+
+            if (idleSeconds >= targetSeconds)
+            {
+                Log(string.Format("System idle for {0} seconds. Auto-playing screensaver.", idleSeconds));
+                TriggerScreensaver();
+            }
         }
     }
 
