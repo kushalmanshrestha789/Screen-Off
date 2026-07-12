@@ -59,6 +59,17 @@ if ($existingProcs) {
 Copy-Item -Path $outPath -Destination $dstPath -Force
 Write-Host "Installed: $dstPath" -ForegroundColor Green
 
+# Copy videos folder to %USERPROFILE%\.local\bin\videos
+$srcVideos = Join-Path $projectRoot "videos"
+$dstVideos = Join-Path $binDir "videos"
+if (Test-Path $srcVideos) {
+    if (-not (Test-Path $dstVideos)) {
+        New-Item -ItemType Directory -Path $dstVideos -Force | Out-Null
+    }
+    Copy-Item -Path "$srcVideos\*" -Destination $dstVideos -Recurse -Force
+    Write-Host "Installed videos folder -> $dstVideos" -ForegroundColor Green
+}
+
 # 4. Add %USERPROFILE%\.local\bin to user PATH if not present
 $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($userPath -notlike "*$binDir*") {

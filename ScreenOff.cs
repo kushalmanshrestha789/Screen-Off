@@ -836,8 +836,46 @@ class ScreenOffForm : Form
 
     private void TriggerScreensaver()
     {
-        Log("Starting system screensaver.");
-        SendMessage(Handle, WM_SYSCOMMAND, (IntPtr)SC_SCREENSAVE, IntPtr.Zero);
+        try
+        {
+            string localVideosDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videos");
+            string userVideosDir = Path.Combine(ConfigDir, "videos");
+            string selectedVideo = null;
+
+            foreach (var dir in new[] { localVideosDir, userVideosDir })
+            {
+                if (Directory.Exists(dir))
+                {
+                    var files = Directory.GetFiles(dir, "*.*");
+                    foreach (var file in files)
+                    {
+                        string ext = Path.GetExtension(file).ToLower();
+                        if (ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".mov" || ext == ".wmv")
+                        {
+                            selectedVideo = file;
+                            break;
+                        }
+                    }
+                }
+                if (selectedVideo != null) break;
+            }
+
+            if (selectedVideo != null)
+            {
+                Log("Playing video screensaver: " + Path.GetFileName(selectedVideo));
+                Process.Start("wmplayer.exe", string.Format("/play /close /fullscreen \"{0}\"", selectedVideo));
+            }
+            else
+            {
+                Log("No videos found. Launching system screensaver.");
+                SendMessage(Handle, WM_SYSCOMMAND, (IntPtr)SC_SCREENSAVE, IntPtr.Zero);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("Failed to start screensaver: " + ex.Message);
+            SendMessage(Handle, WM_SYSCOMMAND, (IntPtr)SC_SCREENSAVE, IntPtr.Zero);
+        }
     }
 
     private void CountdownTimer_Tick(object sender, EventArgs e)
