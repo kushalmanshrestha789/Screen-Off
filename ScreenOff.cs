@@ -117,6 +117,12 @@ class ScreenOffForm : Form
     private bool _runIdleCheck = false;
     private int _idleTimeoutMin = 15;
 
+    // Playback and Mute settings
+    private bool _ssMuted = false;
+    private string _ssPlaybackMode = "Shuffle (Random)";
+    private int _ssCurrentIndex = 0;
+    private string _ssSingleVideoPath = "";
+
     private bool _runAtStartup = false;
     private readonly bool _startMinimized;
     private bool _isScreensaverActive = false;
@@ -143,6 +149,8 @@ class ScreenOffForm : Form
     private ComboBox _ssKeyCombo;
     private CheckBox _idleCheck;
     private ComboBox _idleCombo;
+    private ComboBox _playModeCombo;
+    private CheckBox _muteCheck;
 
     private CheckBox _startupCheck;
     private Button _actionBtn;
@@ -160,7 +168,7 @@ class ScreenOffForm : Form
 
         // Form properties
         Text = "Screen Off & Screensaver Utility";
-        Size = new Size(560, 460);
+        Size = new Size(560, 484);
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(18, 18, 20);
@@ -278,7 +286,7 @@ class ScreenOffForm : Form
         var mainPanel = new Panel
         {
             Location = new Point(16, 56),
-            Size = new Size(528, 388),
+            Size = new Size(528, 412),
             BackColor = Color.Transparent
         };
         Controls.Add(mainPanel);
@@ -367,16 +375,16 @@ class ScreenOffForm : Form
         // 5. Config panel: Screensaver Settings (left column, bottom)
         var ssConfigCard = new Panel
         {
-            Size = new Size(256, 156),
+            Size = new Size(256, 180),
             Location = new Point(0, 228),
             BackColor = Color.FromArgb(26, 26, 30)
         };
         mainPanel.Controls.Add(ssConfigCard);
 
-        var ssTitle = new Label { Text = "SCREENSAVER SETTINGS", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = Color.FromArgb(139, 92, 246), Location = new Point(12, 8), AutoSize = true };
+        var ssTitle = new Label { Text = "SCREENSAVER SETTINGS", Font = new Font("Segoe UI", 8f, FontStyle.Bold), ForeColor = Color.FromArgb(139, 92, 246), Location = new Point(12, 6), AutoSize = true };
         ssConfigCard.Controls.Add(ssTitle);
 
-        var lbl4 = new Label { Text = "Modifier", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(12, 28), AutoSize = true };
+        var lbl4 = new Label { Text = "Modifier", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(12, 22), AutoSize = true };
         _ssModCombo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -384,13 +392,13 @@ class ScreenOffForm : Form
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8f),
-            Location = new Point(12, 44),
+            Location = new Point(12, 38),
             Size = new Size(110, 22)
         };
         _ssModCombo.Items.AddRange(new object[] { "Alt", "Ctrl", "Shift", "Win", "None" });
         _ssModCombo.SelectedIndexChanged += ConfigChanged;
 
-        var lbl5 = new Label { Text = "Trigger Key", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(134, 28), AutoSize = true };
+        var lbl5 = new Label { Text = "Trigger Key", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(134, 22), AutoSize = true };
         _ssKeyCombo = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -398,7 +406,7 @@ class ScreenOffForm : Form
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8f),
-            Location = new Point(134, 44),
+            Location = new Point(134, 38),
             Size = new Size(110, 22)
         };
         for (char c = 'A'; c <= 'Z'; c++) _ssKeyCombo.Items.Add(c.ToString());
@@ -410,7 +418,7 @@ class ScreenOffForm : Form
             Text = "Auto-play when system is idle",
             Font = new Font("Segoe UI", 8f),
             ForeColor = Color.FromArgb(209, 213, 219),
-            Location = new Point(12, 78),
+            Location = new Point(12, 66),
             Size = new Size(232, 20),
             FlatStyle = FlatStyle.Flat
         };
@@ -424,20 +432,48 @@ class ScreenOffForm : Form
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8f),
-            Location = new Point(12, 98),
+            Location = new Point(12, 86),
             Size = new Size(232, 22)
         };
         _idleCombo.Items.AddRange(new object[] { "1 Minute", "2 Minutes", "5 Minutes", "10 Minutes", "15 Minutes", "20 Minutes", "30 Minutes", "1 Hour" });
         _idleCombo.SelectedIndexChanged += ConfigChanged;
         ssConfigCard.Controls.Add(_idleCombo);
 
+        var lblPlayback = new Label { Text = "Playback Mode", Font = new Font("Segoe UI", 7.5f), ForeColor = Color.FromArgb(156, 163, 175), Location = new Point(12, 112), AutoSize = true };
+        _playModeCombo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            BackColor = Color.FromArgb(31, 41, 55),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8f),
+            Location = new Point(12, 126),
+            Size = new Size(110, 22)
+        };
+        _playModeCombo.Items.AddRange(new object[] { "Shuffle (Random)", "Sequential", "Single Loop" });
+        _playModeCombo.SelectedIndexChanged += ConfigChanged;
+        ssConfigCard.Controls.Add(lblPlayback);
+        ssConfigCard.Controls.Add(_playModeCombo);
+
+        _muteCheck = new CheckBox
+        {
+            Text = "Mute Audio",
+            Font = new Font("Segoe UI", 8f),
+            ForeColor = Color.FromArgb(209, 213, 219),
+            Location = new Point(134, 126),
+            Size = new Size(110, 22),
+            FlatStyle = FlatStyle.Flat
+        };
+        _muteCheck.CheckedChanged += ConfigChanged;
+        ssConfigCard.Controls.Add(_muteCheck);
+
         var ssHint = new Label
         {
-            Text = "Space / Right Arrow shifts screensaver during play.",
+            Text = "Space / Right Arrow changes video.",
             Font = new Font("Segoe UI", 7f, FontStyle.Italic),
             ForeColor = Color.FromArgb(156, 163, 175),
-            Location = new Point(12, 126),
-            Size = new Size(232, 26)
+            Location = new Point(12, 154),
+            Size = new Size(232, 22)
         };
         ssConfigCard.Controls.Add(ssHint);
 
@@ -516,7 +552,7 @@ class ScreenOffForm : Form
         // 7. Logs card (right column, bottom)
         var logsCard = new Panel
         {
-            Size = new Size(256, 156),
+            Size = new Size(256, 180),
             Location = new Point(272, 228),
             BackColor = Color.FromArgb(26, 26, 30)
         };
@@ -578,7 +614,7 @@ class ScreenOffForm : Form
             ForeColor = Color.FromArgb(16, 185, 129),
             BorderStyle = BorderStyle.None,
             Font = new Font("Consolas", 8f),
-            Bounds = new Rectangle(0, 24, 256, 132),
+            Bounds = new Rectangle(0, 24, 256, 156),
             ScrollBars = ScrollBars.Vertical
         };
         logsCard.Controls.Add(_logBox);
@@ -631,12 +667,25 @@ class ScreenOffForm : Form
 
                 var idleEnabledMatch = Regex.Match(json, "\"idle_enabled\"\\s*:\\s*(true|false)");
                 if (idleEnabledMatch.Success) _runIdleCheck = idleEnabledMatch.Groups[1].Value == "true";
+
+                // Load Mute and Playback Settings
+                var mutedMatch = Regex.Match(json, "\"ss_muted\"\\s*:\\s*(true|false)");
+                if (mutedMatch.Success) _ssMuted = mutedMatch.Groups[1].Value == "true";
+
+                var playModeMatch = Regex.Match(json, "\"ss_playback_mode\"\\s*:\\s*\"([^\"]*)\"");
+                if (playModeMatch.Success) _ssPlaybackMode = playModeMatch.Groups[1].Value;
+
+                var ssIndexMatch = Regex.Match(json, "\"ss_current_index\"\\s*:\\s*(\\d+)");
+                if (ssIndexMatch.Success) int.TryParse(ssIndexMatch.Groups[1].Value, out _ssCurrentIndex);
+
+                var ssSinglePathMatch = Regex.Match(json, "\"ss_single_video_path\"\\s*:\\s*\"([^\"]*)\"");
+                if (ssSinglePathMatch.Success) _ssSingleVideoPath = ssSinglePathMatch.Groups[1].Value;
                 
                 Log("Configuration file loaded.");
             }
             else
             {
-                Log("Config file not found, using defaults (Alt+D / Alt+S / 15m idle disabled).");
+                Log("Config file not found, using defaults.");
             }
         }
         catch (Exception ex)
@@ -653,6 +702,12 @@ class ScreenOffForm : Form
         _idleCheck.CheckedChanged -= ConfigChanged;
         _idleCheck.Checked = _runIdleCheck;
         _idleCheck.CheckedChanged += ConfigChanged;
+
+        _muteCheck.CheckedChanged -= ConfigChanged;
+        _muteCheck.Checked = _ssMuted;
+        _muteCheck.CheckedChanged += ConfigChanged;
+
+        SetComboBoxSilently(_playModeCombo, _ssPlaybackMode);
 
         string idleText = "15 Minutes";
         if (_idleTimeoutMin == 60) idleText = "1 Hour";
@@ -684,8 +739,9 @@ class ScreenOffForm : Form
                 Directory.CreateDirectory(ConfigDir);
             }
             var json = string.Format(
-                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\",\n  \"idle_timeout_min\": {5},\n  \"idle_enabled\": {6}\n}}",
-                _modifier, _key, _delaySec, _ssModifier, _ssKey, _idleTimeoutMin, _runIdleCheck ? "true" : "false"
+                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\",\n  \"idle_timeout_min\": {5},\n  \"idle_enabled\": {6},\n  \"ss_muted\": {7},\n  \"ss_playback_mode\": \"{8}\",\n  \"ss_current_index\": {9},\n  \"ss_single_video_path\": \"{10}\"\n}}",
+                _modifier, _key, _delaySec, _ssModifier, _ssKey, _idleTimeoutMin, _runIdleCheck ? "true" : "false",
+                _ssMuted ? "true" : "false", _ssPlaybackMode, _ssCurrentIndex, _ssSingleVideoPath.Replace("\\", "\\\\").Replace("\"", "\\\"")
             );
             File.WriteAllText(ConfigPath, json);
             Log("Configuration saved.");
@@ -703,6 +759,8 @@ class ScreenOffForm : Form
         _ssModifier = _ssModCombo.SelectedItem.ToString();
         _ssKey = _ssKeyCombo.SelectedItem.ToString();
         _runIdleCheck = _idleCheck.Checked;
+        _ssMuted = _muteCheck.Checked;
+        _ssPlaybackMode = _playModeCombo.SelectedItem.ToString();
 
         string idleStr = _idleCombo.SelectedItem.ToString();
         if (idleStr.Contains("1 Hour")) _idleTimeoutMin = 60;
@@ -960,16 +1018,43 @@ class ScreenOffForm : Form
 
             if (videoFiles.Count > 0)
             {
-                var rand = new Random();
-                string selectedVideo = videoFiles[rand.Next(videoFiles.Count)];
-                Log("Playing video screensaver (random): " + Path.GetFileName(selectedVideo));
+                videoFiles.Sort();
+
+                string selectedVideo = null;
+                if (_ssPlaybackMode == "Single Loop")
+                {
+                    if (!string.IsNullOrEmpty(_ssSingleVideoPath) && File.Exists(_ssSingleVideoPath))
+                    {
+                        selectedVideo = _ssSingleVideoPath;
+                    }
+                    else
+                    {
+                        selectedVideo = videoFiles[0];
+                        _ssSingleVideoPath = selectedVideo;
+                        SaveConfig();
+                    }
+                }
+                else if (_ssPlaybackMode == "Sequential")
+                {
+                    if (_ssCurrentIndex >= videoFiles.Count) _ssCurrentIndex = 0;
+                    selectedVideo = videoFiles[_ssCurrentIndex];
+                    _ssCurrentIndex = (_ssCurrentIndex + 1) % videoFiles.Count;
+                    SaveConfig();
+                }
+                else // Shuffle (Random)
+                {
+                    var rand = new Random();
+                    selectedVideo = videoFiles[rand.Next(videoFiles.Count)];
+                }
+
+                Log(string.Format("Playing screensaver ({0}): {1}", _ssPlaybackMode, Path.GetFileName(selectedVideo)));
                 
                 _isScreensaverActive = true;
                 var thread = new System.Threading.Thread(() =>
                 {
                     try
                     {
-                        var win = new VideoWindow(selectedVideo);
+                        var win = new VideoWindow(selectedVideo, _ssMuted, _ssPlaybackMode);
                         win.ShowDialog();
                     }
                     catch (Exception threadEx)
@@ -1133,10 +1218,15 @@ class VideoWindow : System.Windows.Window
     private System.Drawing.Point _initialMousePos;
     private bool _firstMouseMove = true;
     private string _currentVideo;
+    private bool _muted;
+    private string _playbackMode;
 
-    public VideoWindow(string videoPath)
+    public VideoWindow(string videoPath, bool muted, string playbackMode)
     {
         _currentVideo = videoPath;
+        _muted = muted;
+        _playbackMode = playbackMode;
+        
         Title = "Screensaver";
         WindowStyle = System.Windows.WindowStyle.None;
         WindowState = System.Windows.WindowState.Maximized;
@@ -1149,7 +1239,8 @@ class VideoWindow : System.Windows.Window
             Source = new Uri(videoPath),
             LoadedBehavior = System.Windows.Controls.MediaState.Manual,
             UnloadedBehavior = System.Windows.Controls.MediaState.Close,
-            Stretch = System.Windows.Media.Stretch.UniformToFill
+            Stretch = System.Windows.Media.Stretch.UniformToFill,
+            IsMuted = _muted
         };
 
         _mediaElement.MediaEnded += (s, e) =>
@@ -1215,12 +1306,33 @@ class VideoWindow : System.Windows.Window
 
                 if (videoFiles.Count > 1)
                 {
-                    videoFiles.Remove(_currentVideo);
-                    var rand = new Random();
-                    string nextVideo = videoFiles[rand.Next(videoFiles.Count)];
+                    videoFiles.Sort();
+                    string nextVideo = null;
+
+                    if (_playbackMode == "Single Loop")
+                    {
+                        nextVideo = _currentVideo;
+                    }
+                    else if (_playbackMode == "Sequential")
+                    {
+                        int currentIndex = videoFiles.IndexOf(_currentVideo);
+                        int nextIndex = (currentIndex + 1) % videoFiles.Count;
+                        nextVideo = videoFiles[nextIndex];
+                    }
+                    else // Shuffle (Random)
+                    {
+                        videoFiles.Remove(_currentVideo);
+                        var rand = new Random();
+                        nextVideo = videoFiles[rand.Next(videoFiles.Count)];
+                    }
+
                     _currentVideo = nextVideo;
-                    
                     _mediaElement.Source = new Uri(nextVideo);
+                    _mediaElement.Position = TimeSpan.Zero;
+                    _mediaElement.Play();
+                }
+                else if (videoFiles.Count == 1)
+                {
                     _mediaElement.Position = TimeSpan.Zero;
                     _mediaElement.Play();
                 }
