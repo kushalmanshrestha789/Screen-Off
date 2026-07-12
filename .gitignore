@@ -1,0 +1,11 @@
+# Build outputs
+screen-off.exe
+*.exe
+*.pdb
+
+# Local settings / cache
+config.json
+.vs/
+bin/
+obj/
+*.log
