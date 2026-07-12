@@ -33,10 +33,17 @@ $srcPath = Join-Path $projectRoot $srcName
 $outPath = Join-Path $projectRoot $exeName
 
 Write-Host "Compiling ScreenOff.cs..." -ForegroundColor Cyan
+$cscDir = Split-Path $csc
+$wpfDir = Join-Path $cscDir "WPF"
 & $csc /nologo /target:winexe `
+    /lib:"$wpfDir" `
     /reference:System.Windows.Forms.dll `
     /reference:System.Drawing.dll `
     /reference:System.dll `
+    /reference:PresentationCore.dll `
+    /reference:PresentationFramework.dll `
+    /reference:WindowsBase.dll `
+    /reference:System.Xaml.dll `
     /out:"$outPath" `
     "$srcPath" 2>&1
 

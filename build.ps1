@@ -27,13 +27,19 @@ Write-Host "=== Building Screen Off Standalone Utility ===" -ForegroundColor Cya
 Write-Host "Source:   $srcFile"
 Write-Host "Output:   $outExe"
 Write-Host "Compiler: $csc"
-Write-Host ""
+$cscDir = Split-Path $csc
+$wpfDir = Join-Path $cscDir "WPF"
 
 Write-Host "Compiling..." -ForegroundColor Cyan
 & $csc /nologo /target:winexe `
+    /lib:"$wpfDir" `
     /reference:System.Windows.Forms.dll `
     /reference:System.Drawing.dll `
     /reference:System.dll `
+    /reference:PresentationCore.dll `
+    /reference:PresentationFramework.dll `
+    /reference:WindowsBase.dll `
+    /reference:System.Xaml.dll `
     /out:"$outExe" `
     "$srcFile" 2>&1
 

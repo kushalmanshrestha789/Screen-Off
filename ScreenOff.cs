@@ -863,7 +863,20 @@ class ScreenOffForm : Form
             if (selectedVideo != null)
             {
                 Log("Playing video screensaver: " + Path.GetFileName(selectedVideo));
-                Process.Start("wmplayer.exe", string.Format("/play /close /fullscreen \"{0}\"", selectedVideo));
+                var thread = new System.Threading.Thread(() =>
+                {
+                    try
+                    {
+                        var win = new VideoWindow(selectedVideo);
+                        win.ShowDialog();
+                    }
+                    catch (Exception threadEx)
+                    {
+                        Log("Screensaver play error: " + threadEx.Message);
+                    }
+                });
+                thread.SetApartmentState(System.Threading.ApartmentState.STA);
+                thread.Start();
             }
             else
             {
@@ -985,5 +998,55 @@ class ScreenOffForm : Form
         {
             DestroyHandle();
         }
+    }
+}
+
+class VideoWindow : System.Windows.Window
+{
+    private System.Windows.Controls.MediaElement _mediaElement;
+    private System.Windows.Point _initialMousePos;
+    private bool _firstMouseMove = true;
+
+    public VideoWindow(string videoPath)
+    {
+        Title = "Screensaver";
+        WindowStyle = System.Windows.WindowStyle.None;
+        WindowState = System.Windows.WindowState.Maximized;
+        Background = System.Windows.Media.Brushes.Black;
+        Topmost = true;
+        Cursor = System.Windows.Input.Cursors.None;
+
+        _mediaElement = new System.Windows.Controls.MediaElement
+        {
+            Source = new Uri(videoPath),
+            LoadedBehavior = System.Windows.Controls.MediaState.Play,
+            UnloadedBehavior = System.Windows.Controls.MediaState.Close,
+            Stretch = System.Windows.Media.Stretch.UniformToFill
+        };
+
+        _mediaElement.MediaEnded += (s, e) =>
+        {
+            _mediaElement.Position = TimeSpan.Zero;
+            _mediaElement.Play();
+        };
+
+        Content = _mediaElement;
+
+        KeyDown += (s, e) => Close();
+        MouseDown += (s, e) => Close();
+        MouseMove += (s, e) =>
+        {
+            System.Windows.Point currentPos = e.GetPosition(this);
+            if (_firstMouseMove)
+            {
+                _initialMousePos = currentPos;
+                _firstMouseMove = false;
+            }
+            else if (Math.Abs(currentPos.X - _initialMousePos.X) > 10 ||
+                     Math.Abs(currentPos.Y - _initialMousePos.Y) > 10)
+            {
+                Close();
+            }
+        };
     }
 }
