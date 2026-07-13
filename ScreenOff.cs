@@ -63,7 +63,31 @@ class ScreenOffForm : Form
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
-    
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDesktopWindow();
+
+    // Power Management APIs
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool PowerWriteACConfigIndex(Guid GroupGuid, Guid SettingGuid, uint ACValueIndex);
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool PowerWriteDCConfigIndex(Guid GroupGuid, Guid SettingGuid, uint DCValueIndex);
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool PowerReadACConfigIndex(Guid GroupGuid, Guid SettingGuid, out uint ACValueIndex);
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool PowerReadDCConfigIndex(Guid GroupGuid, Guid SettingGuid, out uint DCValueIndex);
+    [DllImport("powrprof.dll", SetLastError = true)]
+    private static extern bool PowerSetActiveScheme(Guid SchemeSid);
+
+    // Note: On some Windows versions, these APIs might be renamed or behave differently.
+    // If the above fail, we will fall back to the Blackout method.
+
+    private static readonly Guid GUID_MONITOR_GROUP = new Guid("764822C0-20D0-4E4C-9123-B2A1C1F1E121");
+    private static readonly Guid GUID_MONITOR_TIMEOUT = new Guid("238C0CA7-0156-4530-8339-6089FDC5C41B");
+
     // For window dragging
     [DllImport("user32.dll")]
     public static extern bool ReleaseCapture();
@@ -116,6 +140,7 @@ class ScreenOffForm : Form
     // Idle config
     private bool _runIdleCheck = false;
     private int _idleTimeoutMin = 15;
+    private bool _ssShowClock = true;
 
     // Playback and Mute settings
     private bool _ssMuted = false;
@@ -151,6 +176,7 @@ class ScreenOffForm : Form
     private ComboBox _idleCombo;
     private ComboBox _playModeCombo;
     private CheckBox _muteCheck;
+    private CheckBox _clockCheck;
 
     private CheckBox _startupCheck;
     private Button _actionBtn;
@@ -467,6 +493,18 @@ class ScreenOffForm : Form
         _muteCheck.CheckedChanged += ConfigChanged;
         ssConfigCard.Controls.Add(_muteCheck);
 
+        _clockCheck = new CheckBox
+        {
+            Text = "Show clock",
+            Font = new Font("Segoe UI", 8f),
+            ForeColor = Color.FromArgb(209, 213, 219),
+            Location = new Point(244, 126),
+            Size = new Size(110, 22),
+            FlatStyle = FlatStyle.Flat
+        };
+        _clockCheck.CheckedChanged += ConfigChanged;
+        ssConfigCard.Controls.Add(_clockCheck);
+
         var ssHint = new Label
         {
             Text = "Space / Right Arrow changes video.",
@@ -672,6 +710,9 @@ class ScreenOffForm : Form
                 var mutedMatch = Regex.Match(json, "\"ss_muted\"\\s*:\\s*(true|false)");
                 if (mutedMatch.Success) _ssMuted = mutedMatch.Groups[1].Value == "true";
 
+                var clockMatch = Regex.Match(json, "\"ss_show_clock\"\\s*:\\s*(true|false)");
+                if (clockMatch.Success) _ssShowClock = clockMatch.Groups[1].Value == "true";
+
                 var playModeMatch = Regex.Match(json, "\"ss_playback_mode\"\\s*:\\s*\"([^\"]*)\"");
                 if (playModeMatch.Success) _ssPlaybackMode = playModeMatch.Groups[1].Value;
 
@@ -707,6 +748,10 @@ class ScreenOffForm : Form
         _muteCheck.Checked = _ssMuted;
         _muteCheck.CheckedChanged += ConfigChanged;
 
+        _clockCheck.CheckedChanged -= ConfigChanged;
+        _clockCheck.Checked = _ssShowClock;
+        _clockCheck.CheckedChanged += ConfigChanged;
+
         SetComboBoxSilently(_playModeCombo, _ssPlaybackMode);
 
         string idleText = "15 Minutes";
@@ -739,9 +784,9 @@ class ScreenOffForm : Form
                 Directory.CreateDirectory(ConfigDir);
             }
             var json = string.Format(
-                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\",\n  \"idle_timeout_min\": {5},\n  \"idle_enabled\": {6},\n  \"ss_muted\": {7},\n  \"ss_playback_mode\": \"{8}\",\n  \"ss_current_index\": {9},\n  \"ss_single_video_path\": \"{10}\"\n}}",
+                "{{\n  \"hotkey_modifier\": \"{0}\",\n  \"hotkey_key\": \"{1}\",\n  \"turnoff_delay_sec\": {2},\n  \"ss_hotkey_modifier\": \"{3}\",\n  \"ss_hotkey_key\": \"{4}\",\n  \"idle_timeout_min\": {5},\n  \"idle_enabled\": {6},\n  \"ss_muted\": {7},\n  \"ss_show_clock\": {8},\n  \"ss_playback_mode\": \"{9}\",\n  \"ss_current_index\": {10},\n  \"ss_single_video_path\": \"{11}\"\n}}",
                 _modifier, _key, _delaySec, _ssModifier, _ssKey, _idleTimeoutMin, _runIdleCheck ? "true" : "false",
-                _ssMuted ? "true" : "false", _ssPlaybackMode, _ssCurrentIndex, _ssSingleVideoPath.Replace("\\", "\\\\").Replace("\"", "\\\"")
+                _ssMuted ? "true" : "false", _ssShowClock ? "true" : "false", _ssPlaybackMode, _ssCurrentIndex, _ssSingleVideoPath.Replace("\\", "\\\\").Replace("\"", "\\\"")
             );
             File.WriteAllText(ConfigPath, json);
             Log("Configuration saved.");
@@ -760,6 +805,7 @@ class ScreenOffForm : Form
         _ssKey = _ssKeyCombo.SelectedItem.ToString();
         _runIdleCheck = _idleCheck.Checked;
         _ssMuted = _muteCheck.Checked;
+        _ssShowClock = _clockCheck.Checked;
         _ssPlaybackMode = _playModeCombo.SelectedItem.ToString();
 
         string idleStr = _idleCombo.SelectedItem.ToString();
@@ -957,6 +1003,121 @@ class ScreenOffForm : Form
         }
     }
 
+    private bool _nativeIdleActive = false;
+    private uint _savedACTimeout = 0;
+    private uint _savedDCTimeout = 0;
+    private System.Drawing.Point _offMousePos;
+    private bool _offMousePosSet = false;
+
+    private void ExecuteRobustScreenOff()
+    {
+        // Capture current mouse position for hysteresis
+        _offMousePos = System.Windows.Forms.Cursor.Position;
+        _offMousePosSet = true;
+
+        // 1. Broadcast (Asynchronous) - Original fix
+        PostMessage((IntPtr)0xFFFF, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+
+        // 2. Desktop Window - More direct target for system commands
+        IntPtr desktopWindow = GetDesktopWindow();
+        if (desktopWindow != IntPtr.Zero)
+        {
+            PostMessage(desktopWindow, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+        }
+
+        // 3. Foreground Window (Synchronous) - Often more reliable on some Win versions
+        IntPtr fgWindow = GetForegroundWindow();
+        if (fgWindow != IntPtr.Zero)
+        {
+            SendMessage(fgWindow, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+        }
+
+        // 4. Local Window (Synchronous)
+        SendMessage(this.Handle, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+
+        // 5. Native Idle Path (Most Robust) - Change system timeout to 1 second
+        StartNativeIdleOff();
+
+        // 6. FAILSAFE: Visual Blackout (Tier 3)
+        // If we are here, and the native idle path failed (S0 or API error),
+        // we launch a black overlay. This ensures the screen *looks* off.
+        if (!_nativeIdleActive)
+        {
+            Log("Native idle failed. Launching Visual Blackout fail-safe.");
+            TriggerBlackout();
+        }
+    }
+
+    private void TriggerBlackout()
+    {
+        if (_isScreensaverActive) return;
+        _isScreensaverActive = true; // Reuse this flag to prevent multiple overlays
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var win = new BlackoutWindow();
+                win.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Log("Blackout error: " + ex.Message);
+            }
+            finally
+            {
+                _isScreensaverActive = false;
+            }
+        });
+        thread.SetApartmentState(System.Threading.ApartmentState.STA);
+        thread.Start();
+    }
+
+    private void StartNativeIdleOff()
+    {
+        try
+        {
+            // Save current timeouts
+            bool acSaved = false;
+            bool dcSaved = false;
+            try { if (PowerReadACConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, out _savedACTimeout)) acSaved = true; } catch { }
+            try { if (PowerReadDCConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, out _savedDCTimeout)) dcSaved = true; } catch { }
+
+            // Set timeouts to 1 second
+            bool acSet = PowerWriteACConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, 1);
+            bool dcSet = PowerWriteDCConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, 1);
+
+            if (!acSet && !dcSet)
+            {
+                Log("Native idle path: System rejected timeout change.");
+                _nativeIdleActive = false;
+                return;
+            }
+
+            _nativeIdleActive = true;
+            Log("Native idle path activated (timeout: 1s).");
+        }
+        catch (Exception ex)
+        {
+            Log("Native idle activation failed: " + ex.Message);
+            _nativeIdleActive = false;
+        }
+    }
+
+    private void StopNativeIdleOff()
+    {
+        try
+        {
+            if (_savedACTimeout != 0) PowerWriteACConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, _savedACTimeout);
+            if (_savedDCTimeout != 0) PowerWriteDCConfigIndex(GUID_MONITOR_GROUP, GUID_MONITOR_TIMEOUT, _savedDCTimeout);
+            _nativeIdleActive = false;
+            Log("Native idle path restored.");
+        }
+        catch (Exception ex)
+        {
+            Log("Native idle restoration failed: " + ex.Message);
+        }
+    }
+
     public void OnHotkeyOffReceived()
     {
         Log("Screen Off hotkey triggered.");
@@ -974,9 +1135,10 @@ class ScreenOffForm : Form
         if (delay <= 0)
         {
             Log("Turning off screen now.");
-            SendMessage((IntPtr)0xFFFF, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+            ExecuteRobustScreenOff();
         }
         else
+
         {
             _countdownRemaining = delay;
             _actionBtn.Enabled = false;
@@ -994,7 +1156,7 @@ class ScreenOffForm : Form
         {
             string localVideosDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "videos");
             string userVideosDir = Path.Combine(ConfigDir, "videos");
-            
+
             var videoFiles = new System.Collections.Generic.List<string>();
 
             foreach (var dir in new[] { localVideosDir, userVideosDir })
@@ -1048,13 +1210,13 @@ class ScreenOffForm : Form
                 }
 
                 Log(string.Format("Playing screensaver ({0}): {1}", _ssPlaybackMode, Path.GetFileName(selectedVideo)));
-                
+
                 _isScreensaverActive = true;
                 var thread = new System.Threading.Thread(() =>
                 {
                     try
                     {
-                        var win = new VideoWindow(selectedVideo, _ssMuted, _ssPlaybackMode);
+                        var win = new VideoWindow(selectedVideo, _ssMuted, _ssPlaybackMode, _ssShowClock);
                         win.ShowDialog();
                     }
                     catch (Exception threadEx)
@@ -1084,14 +1246,48 @@ class ScreenOffForm : Form
 
     private void IdleTimer_Tick(object sender, EventArgs e)
     {
-        if (!_runIdleCheck || _isScreensaverActive) return;
-
         var lii = new LASTINPUTINFO();
         lii.cbSize = (uint)Marshal.SizeOf(lii);
         if (GetLastInputInfo(ref lii))
         {
             uint elapsedTicks = (uint)Environment.TickCount - lii.dwTime;
             uint idleSeconds = elapsedTicks / 1000;
+
+            // Restoration logic for Native Idle Path with Hysteresis
+            if (_nativeIdleActive)
+            {
+                bool shouldRestore = false;
+
+                // Check if mouse has moved significantly (15 pixels)
+                if (_offMousePosSet)
+                {
+                    var currentPos = System.Windows.Forms.Cursor.Position;
+                    if (Math.Abs(currentPos.X - _offMousePos.X) > 15 ||
+                        Math.Abs(currentPos.Y - _offMousePos.Y) > 15)
+                    {
+                        shouldRestore = true;
+                    }
+                }
+
+                // Any keypress/mouse click (idleSeconds < 1) also triggers restoration
+                // but we combine it with a small delay check or a movement check
+                // to prevent micro-jitter from waking it too fast.
+                if (idleSeconds < 1)
+                {
+                    // If the mouse moved significantly OR there was a click/key
+                    // We restore immediately to ensure responsiveness.
+                    shouldRestore = true;
+                }
+
+                if (shouldRestore)
+                {
+                    StopNativeIdleOff();
+                    _offMousePosSet = false;
+                }
+            }
+
+            if (!_runIdleCheck || _isScreensaverActive) return;
+
             uint targetSeconds = (uint)_idleTimeoutMin * 60;
 
             if (idleSeconds >= targetSeconds)
@@ -1111,9 +1307,10 @@ class ScreenOffForm : Form
             _actionBtn.Enabled = true;
             _actionBtn.Text = "TURN OFF SCREEN NOW";
             Log("Turning off screen now.");
-            SendMessage((IntPtr)0xFFFF, WM_SYSCOMMAND, (IntPtr)SC_MONITORPOWER, (IntPtr)2);
+            ExecuteRobustScreenOff();
         }
         else
+
         {
             UpdateActionButtonText();
         }
@@ -1142,6 +1339,7 @@ class ScreenOffForm : Form
     private void ExitApplication()
     {
         Log("Exiting application.");
+        if (_nativeIdleActive) StopNativeIdleOff();
         _tray.Visible = false;
         if (_hotkeyWindow != null)
         {
@@ -1212,6 +1410,48 @@ class ScreenOffForm : Form
     }
 }
 
+class BlackoutWindow : System.Windows.Window
+{
+    private System.Windows.Threading.DispatcherTimer _antiFadeTimer;
+    private bool _isAlmostBlack = false;
+
+    public BlackoutWindow()
+    {
+        Title = "Blackout";
+        WindowStyle = System.Windows.WindowStyle.None;
+        WindowState = System.Windows.WindowState.Maximized;
+        Background = System.Windows.Media.Brushes.Black;
+        Topmost = true;
+        Cursor = System.Windows.Input.Cursors.None;
+        ShowInTaskbar = false;
+
+        // ONLY close on a deliberate click or key press.
+        MouseDown += (s, e) => Close();
+        KeyDown += (s, e) => Close();
+
+        // Anti-Fade Logic: Toggles between perfect black (#000000) and almost black (#010101)
+        // This tricks CABC (Content Adaptive Brightness Control) and GPU "eco" modes
+        // by introducing a subtle, imperceptible change in content, preventing
+        // the OS from boosting the brightness of a "static" black screen.
+        _antiFadeTimer = new System.Windows.Threading.DispatcherTimer();
+        _antiFadeTimer.Interval = TimeSpan.FromSeconds(3);
+        _antiFadeTimer.Tick += (s, e) =>
+        {
+            _isAlmostBlack = !_isAlmostBlack;
+            Background = _isAlmostBlack
+                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(1, 1, 1))
+                : System.Windows.Media.Brushes.Black;
+        };
+        _antiFadeTimer.Start();
+    }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        this.Topmost = true;
+    }
+}
+
 class VideoWindow : System.Windows.Window
 {
     private System.Windows.Controls.MediaElement _mediaElement;
@@ -1221,12 +1461,12 @@ class VideoWindow : System.Windows.Window
     private bool _muted;
     private string _playbackMode;
 
-    public VideoWindow(string videoPath, bool muted, string playbackMode)
+    public VideoWindow(string videoPath, bool muted, string playbackMode, bool showClock)
     {
         _currentVideo = videoPath;
         _muted = muted;
         _playbackMode = playbackMode;
-        
+
         Title = "Screensaver";
         WindowStyle = System.Windows.WindowStyle.None;
         WindowState = System.Windows.WindowState.Maximized;
@@ -1249,7 +1489,54 @@ class VideoWindow : System.Windows.Window
             _mediaElement.Play();
         };
 
-        Content = _mediaElement;
+        // UI Root: Grid to allow overlay
+        var rootGrid = new System.Windows.Controls.Grid();
+        rootGrid.Children.Add(_mediaElement);
+
+        if (showClock)
+        {
+            // Digital Clock Implementation with Translucent Blending
+            var clockText = new System.Windows.Controls.TextBlock
+            {
+                Text = DateTime.Now.ToString("HH:mm:ss"),
+                FontFamily = new System.Windows.Media.FontFamily("Segoe UI Light"),
+                FontSize = 72,
+                Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(200, 255, 255, 255)), // 80% Translucent White
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                TextAlignment = System.Windows.TextAlignment.Center
+            };
+
+            // Subtle shadow for extra legibility
+            clockText.Effect = new System.Windows.Media.Effects.DropShadowEffect {
+                BlurRadius = 15,
+                ShadowDepth = 0,
+                Color = System.Windows.Media.Colors.Black,
+                Opacity = 0.5
+            };
+
+            // Translucent Background "Pill" to blend with the video
+            var clockContainer = new System.Windows.Controls.Border
+            {
+                Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(60, 0, 0, 0)), // 20% Translucent Black
+                CornerRadius = new System.Windows.CornerRadius(20),
+                Padding = new System.Windows.Thickness(30, 10, 30, 10),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
+                Margin = new System.Windows.Thickness(0, 0, 0, 60),
+                Child = clockText
+            };
+
+            rootGrid.Children.Add(clockContainer);
+
+            // Update timer
+            var timer = new System.Windows.Threading.DispatcherTimer();
+            timer.Interval = TimeSpan.FromSeconds(1);
+            timer.Tick += (s, e) => { clockText.Text = DateTime.Now.ToString("HH:mm:ss"); };
+            timer.Start();
+        }
+
+        Content = rootGrid;
 
         // Start playback immediately when loaded
         Loaded += (s, e) => _mediaElement.Play();
@@ -1257,8 +1544,8 @@ class VideoWindow : System.Windows.Window
         KeyDown += (s, e) =>
         {
             // If user presses Space, Right arrow, N, or Enter, shuffle to another screensaver
-            if (e.Key == System.Windows.Input.Key.Space || 
-                e.Key == System.Windows.Input.Key.Right || 
+            if (e.Key == System.Windows.Input.Key.Space ||
+                e.Key == System.Windows.Input.Key.Right ||
                 e.Key == System.Windows.Input.Key.N ||
                 e.Key == System.Windows.Input.Key.Enter)
             {
